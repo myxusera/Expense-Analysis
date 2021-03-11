@@ -1,0 +1,406 @@
+---
+title: "Analiza wydatkow na alkohol we Wloszech"
+author: "Michal Rajda"
+date: "27-01-2021"
+output: html_document
+subtitle: "Projekt na zaliczenie przedmiotu Wstep do Analizy Danych"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## Wstep do projektu
+W ramach projektu wykorzystuje duzy zbior danych, obejmujacy dane jednostkowe badania budzetu gospodarstw domowych we Wloszech w roku 2011.
+
+Jego celem jest mozliwie dobre przygotowanie danych do badania i wstepna analiza opisowa oraz graficzna dotyczaca wybranego przeze mnie tematu - Alkoholu.
+
+Aby ulatwic wstepne rozmyslenia dotyczace mojej pracy postanowilem wypisac kilka pomocniczych hipotez wybranych na podstawie wlasnych przemyslen:
+
+- Jak wyglada nasza proba?
+- Kto kupuje alkohol?
+- Jak wygladaja wydatki na alkohol?
+
+## Obrobka danych
+
+Standardowo zaczynam poprzez wczytanie danych i selekcje interesujacych nas danych.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(tidyr)
+dane <- read.delim("HBS_Microdati_Anno_2011.txt", header = TRUE, sep = "\t", dec = ".")
+```
+
+```{r, echo=T}
+alkohol <- dane %>%
+  select(Mese, Regione, Eta4_1, Sesso1, Titstu1, C_1803, C_1804, C_1805) %>%
+  rename(Miesiac = Mese, Region = Regione, Wiek = Eta4_1, Plec = Sesso1, Edukacja = Titstu1,
+         Wino = C_1803, Piwo = C_1804, Inny_alkohol = C_1805)
+```
+
+
+### W obecnej chwili dane prezentuja sie nastepujaco:
+
+
+```{r}
+kable(head(alkohol, 5), format="markdown", align = 'c')
+str(alkohol)
+```
+
+### Interpretacja zmiennych:
+
+Miesiac - miesiac przeprowadzenia ankiety
+Region - region zamieszkania osoby ankietowanej
+Wiek - przedzial wiekowy do ktorego nalezy osoba ankietowana. Wyrozniamy cztery takie grupy:
+
+- osoby ponizej 18 roku życia
+- osoby majace od 18 do 34 lat (mloda_dorosla)
+- osoby majace od 35 do 64 lat (dorosla)
+- osoby majace powyzej 64 lat (starsza)
+- Wino - wydatek osoby ankietowanej na wino (w euro)
+- Piwo - wydatek osoby ankietowanej na piwo (w euro)
+- Inny_alkohol - wydatek osoby ankietowanej na inne alkohole (w euro)
+
+Obszar Wloch podzielilismy na 3 grupy:
+
+Polnoc:
+
+- Piemont i Valle d’Aosta
+- Lombardia
+- Trentino Alto Adige
+- Veneto
+- Friuli Venezia Giulia
+- Liguria
+- Emilia Romagna
+
+Srodek:
+
+- Toskania
+- Umbria
+- Marki
+- Lazio
+- Abruzja
+- Molise
+
+Poludnie:
+
+- Kampania
+- Apulia
+- Basilicata
+- Kalabria
+- Sycylia
+- Sardynia
+
+Dla wykresow przedstawiajacych, czy dana grupa kupuje alkohol czy tez nie:
+
+- 0 - nie
+- 1 - tak
+
+### Braki danych 
+
+```{r, echo=T}
+colSums(is.na(alkohol))
+```
+
+```{r}
+alkohol <- na.omit(alkohol)
+
+alkohol <- alkohol %>%
+  mutate(alkohol, Wydatki_alkohol = Wino + Piwo + Inny_alkohol)
+
+```
+
+Ze wzgledu na niewielka liczbe brakow danych postanowilem usunac je z proby za pomoca funkcji na.omit().
+
+### Analiza danych
+
+
+```{r, echo=T}
+par(mfcol = c(2,2))
+alkohol %>%
+  filter(Piwo > 0) %>%
+    ggplot()+
+    geom_histogram(aes(Piwo), binwidth = 10, center = 5, color="black", fill="orange") + 
+    labs(x="Wydatki na piwo  (euro)", y = "Licznosc") +
+    theme_classic()
+
+alkohol %>%
+  filter(Wino> 0) %>%
+    ggplot()+
+    geom_histogram(aes(Wino), binwidth = 20, center = 10, color="black", fill="orange") + 
+    labs(x="Wydatki na Wino  (euro)", y = "Licznosc") +
+    theme_classic()
+
+alkohol %>%
+  filter(Inny_alkohol > 0) %>%
+    ggplot()+
+    geom_histogram(aes(Inny_alkohol), binwidth = 20, center = 10, color="black", 
+                   fill="orange") +
+    labs(x="Wydatki na inne alkohole (euro)", y = "Licznosc") +
+    theme_classic()
+
+alkohol %>%
+  filter(Wydatki_alkohol > 0) %>%
+    ggplot()+
+    geom_histogram(aes(Inny_alkohol), binwidth = 20, center = 10, color="black", 
+                   fill="orange") +
+    labs(x="Laczne wydatki na alkohol  (euro)", y = "Licznosc") +
+    theme_classic()
+
+```
+
+### Wedlug wlasnego poczucia 'estetyki' danych postanowilem za punkty graniczne odstajacych danych wybrac nastepujace kwantyle
+
+```{r, echo=T}
+quantile(alkohol$Wino, 0.995)
+quantile(alkohol$Piwo, 0.997)
+quantile(alkohol$Inny_alkohol, 0.997)
+quantile(alkohol$Wydatki_alkohol, 0.99)
+```
+
+```{r}
+alkohol_czyste <- alkohol %>%
+  mutate(alkohol, Kupuje = 0) %>%
+  filter(Wino < quantile(alkohol$Wino, 0.995),
+         Inny_alkohol < quantile(alkohol$Inny_alkohol, 0.997),
+         Piwo < quantile(alkohol$Piwo, 0.997),
+         Wydatki_alkohol < quantile(alkohol$Wydatki_alkohol, 0.99))
+  
+alkohol_czyste$Kupuje[alkohol_czyste$Wydatki_alkohol > 0] <- 1
+alkohol_czyste$Region[alkohol_czyste$Region == 1] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 2] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 3] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 4] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 5] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 6] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 7] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 8] <- "polnoc"
+alkohol_czyste$Region[alkohol_czyste$Region == 9] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 10] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 11] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 12] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 13] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 14] <- "srodek"
+alkohol_czyste$Region[alkohol_czyste$Region == 15] <- "poludnie"
+alkohol_czyste$Region[alkohol_czyste$Region == 16] <- "poludnie"
+alkohol_czyste$Region[alkohol_czyste$Region == 17] <- "poludnie"
+alkohol_czyste$Region[alkohol_czyste$Region == 18] <- "poludnie"
+alkohol_czyste$Region[alkohol_czyste$Region == 19] <- "poludnie"
+alkohol_czyste$Region[alkohol_czyste$Region == 20] <- "poludnie"
+
+alkohol_czyste$Plec[alkohol_czyste$Plec == 1] <- "M"  
+alkohol_czyste$Plec[alkohol_czyste$Plec == 2] <- "K"
+
+alkohol_czyste$Wiek[alkohol_czyste$Wiek == 2] <- "mloda_dorosla"
+alkohol_czyste$Wiek[alkohol_czyste$Wiek == 3] <- "dorosla"
+alkohol_czyste$Wiek[alkohol_czyste$Wiek == 4] <- "starsza"
+
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 1] <- "wyzsze"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 2] <- "wyzsze"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 3] <- "wyzsze"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 4] <- "srednie"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 5] <- "srednie"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 6] <- "podstawowe"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 7] <- "podstawowe"
+alkohol_czyste$Edukacja[alkohol_czyste$Edukacja == 8] <- "brak"
+
+
+
+alkohol_czyste$Kupuje <- as.factor(alkohol_czyste$Kupuje)
+alkohol_czyste$Miesiac <- as.factor(alkohol_czyste$Miesiac)
+alkohol_czyste$Region <- as.factor(alkohol_czyste$Region)
+alkohol_czyste$Wiek <- as.factor(alkohol_czyste$Wiek)
+alkohol_czyste$Plec <- as.factor(alkohol_czyste$Plec)
+alkohol_czyste$Edukacja <- as.factor(alkohol_czyste$Edukacja)
+
+kupuje <- alkohol_czyste %>%
+  filter(Wydatki_alkohol > 0)
+```
+
+## Podstawy badania
+
+Dane zawieraja 22518 obserwacji - liczba przeprowadzonych ankiet.
+
+```{r}
+kable(head(alkohol_czyste, 10), format="markdown", align = 'c')
+```
+<br />
+Statystyki opisowe zmiennych ilosciowych
+
+```{r}
+summary(alkohol_czyste[,c(6,7,8,9)])
+```
+
+### Jak charakteryzuje sie proba w badaniu?
+
+```{r}
+alkohol_czyste %>%
+  group_by(Region) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Region, Ilosc), alpha = 0.8, fill="orange") + theme_classic()
+
+```
+
+<br /><br />
+Na podstawie przeprowadzonych operacji i utworzonego wykresu można zauważyć, że najwięcej osób, które wzięły udział w ankiecie pochodziło z północy Włoch.
+<br /><br />
+
+```{r}
+alkohol_czyste %>%
+  group_by(Edukacja) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Edukacja, Ilosc), alpha = 0.8, fill="orange") + theme_classic()
+```
+<br /><br />
+Analizując powyższy wykres możemy łatwo zauważyć, że najczęście w ankiecie brały udział osoby z wykształceniem podstawowym, a najrzadziej te, które nie mogą pochwalić się posiadaniem jakiegokolwiek wykształcenia.
+<br /><br />
+
+```{r}
+alkohol_czyste %>%
+  group_by(Wiek) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Wiek, Ilosc), alpha = 0.8, fill="orange") + theme_classic()
+```
+<br /><br />
+Jak widać na załączonym wykresie wiek odgrywał znaczną role w tym jak często osoby brały udział w ankiecie, w naszym przypadku najwięcej ankiet zostało wypełnionych przez osoby w wieku od 35 do 64 lat.
+<br /><br />
+
+### Jak duzo osob wydaje pieniadze na alkohol?
+
+```{r}
+alkohol_czyste %>%
+  group_by(Kupuje, Edukacja) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Kupuje, Ilosc, fill=Edukacja), alpha = 0.8, position = "dodge") + theme_classic()
+```
+<br /><br />
+Z powyższego wykresu wynika, że najwięcej osób zarówno kupujących jak i nie kupujących alkoholu występuje w grupie osób z wykształceniem podstawowym.
+<br /><br />
+```{r}
+alkohol_czyste %>%
+  group_by(Kupuje, Region) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Kupuje, Ilosc, fill=Region), alpha = 0.8, position = "dodge") + theme_classic()
+```
+<br /><br />
+Analizując załączony wykres można zauważyć że najwięcej alkoholu kupują osoby mieszkające na północy Włoch, a najmniej te pochodzące z częsci środkowej.
+<br /><br />
+
+```{r}
+alkohol_czyste %>%
+  group_by(Kupuje, Wiek) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Kupuje, Ilosc, fill=Wiek), alpha = 0.8, position = "dodge") + theme_classic()
+```
+<br /><br />
+Jak wynika z powyższego wykresu najwięcej abstynentów (osób nie kupujących alkoholu) oraz osób kupujących alkohol występuje w grupie osób dorosłych, czyli tych z przedziału 35 - 64 lata.
+<br /><br />
+
+```{r}
+alkohol_czyste %>%
+  group_by(Miesiac) %>%
+  summarise(Piwo_wydatki = sum(Piwo)) %>%
+  ggplot() +
+  geom_col(aes(Miesiac, Piwo_wydatki), fill="orange", alpha = 0.8) +
+  theme_classic()
+```
+<br /><br />
+Na podstawie powyższego wykresu można potwierdzić nasza hipotezę, że mieszkańcy Włoch wydają średnio na piwo znacznie więcej w mieisącach letnich niż zimowych (najwięcej w sierpniu a najmniej w lutym i grudniu).
+<br /><br />
+
+```{r}
+alkohol_czyste %>%
+  group_by(Kupuje, Plec) %>%
+  summarise(Ilosc = n()) %>%
+  ggplot() +
+  geom_col(aes(Kupuje, Ilosc, fill=Plec), alpha = 0.6, position = position_dodge(width=0.2)) + 
+  theme_classic()
+
+```
+<br /><br />
+Analizując powyższy wykres można dojść do wniosku, że odsetek kobiet, które nie kupują alkoholu jest znacznie wyższy niż analogiczna statystyka dotycząca mężczyzn.
+<br /><br />
+
+### Jak wygladaja wydatki na alkohol w roznych grupach?
+
+```{r}
+ggplot(kupuje, aes(Wydatki_alkohol, fill=Region)) + 
+  geom_histogram(alpha=0.8, binwidth = 10, center = 5)+
+  theme_bw()
+```
+<br /><br />
+Na powyższym wykresie widać, że zdecydowana większości ankietowanych nie przeznacza na alkohol więcej niż 50 euro miesięcznie. Kolejną informacją, którą możemy uzyskać jest
+to że najwiecej osób, które deklarują wydatki na alkohol pochodzi z północy Włoch.
+<br /><br />
+
+```{r}
+ggplot(kupuje, aes(y=Piwo))+
+  geom_boxplot(fill="orange")+
+  facet_grid(". ~ Wiek")+
+  theme_bw()
+```
+
+<br /><br />
+Na podstawie mediany wydatków na piwo osób w róznym wieku można zauważyć, że osoby w podeszłym wieku o wiele rzadziej decydują się na zakup piwa niż osoby w innych grupach wiekowych.
+<br /><br />
+
+```{r}
+aa <- alkohol_czyste %>%
+  group_by(Miesiac) %>%
+  summarise(Wino = mean(Wino),
+            Piwo = mean(Piwo),
+            Inny = mean(Inny_alkohol))
+
+test <- aa %>%
+  gather(Typ, Sredni_wydatek, -Miesiac)
+
+ggplot(test, aes(Miesiac, Sredni_wydatek, fill = Typ)) +
+  geom_col(position = "dodge") +
+  coord_flip()+
+  theme_bw()
+```
+<br /><br />
+
+Jak widać na załączonym wykresie, w każdym z miesięcy, spośród analizowanych alkoholi, Włosi najchętniej kupują wino. Potwierdza to nasza hipotezę, że obywatele Włoch zdecydowanie najwięcej wydają na zakup wina.
+<br /><br />
+
+```{r}
+a <- alkohol_czyste %>%
+  group_by(Region) %>%
+  summarise(Suma_wydatkow = sum(Wydatki_alkohol),
+            Liczba_ankietowanych = n(),
+            Wspolczynnik = Suma_wydatkow/Liczba_ankietowanych)
+kable(head(a, 5), format="markdown", align = 'c')
+
+```
+
+Z powyzszej tabelki mozemy odczytac ile wynosi przecietny wydatek na alkohol jednego mieszkanca wzgledem poszczegolnych regionow Wloch.
+
+
+## Regresja logistyczna
+
+```{r}
+rl <- glm(Kupuje~Region+Plec+Wiek+Edukacja , data=alkohol_czyste, family = "binomial")
+summary(rl)
+
+```
+<br /><br />
+Na podstawie regresji logistycznej mozemy wyroznic 5 zmiennych ktore maja bardzo istnotny wplyw na to czy ktos kupuje alkohol:
+
+- Mezczyzni decyduja sie na zakup alkoholu 2.16 razy czesciej od kobiet.
+- Osoby w podeszlym wieku kupuja 1.18 razy rzadziej alkohol niz osoby dorosle.
+- Zarowno na poziomie edukacji podstawowej, sredniej jak i wyzszej osoby z kazdej tej grupy kupuja okolo 1.42 razy czesciej alkohol niz osoby bez wyksztalcenia.
+<br /><br />
+
+
+
+
